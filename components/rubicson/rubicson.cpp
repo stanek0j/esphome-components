@@ -11,91 +11,149 @@ void RubicsonComponent::setup() {
   ESP_LOGI(TAG, "Rubicson receiver initialized");
 }
 
-void RubicsonComponent::loop() {
-  if (!this->recv_) return;
+void RubicsonComponent::set_remote_receiver(remote_base::RemoteReceiverComponent *remote) {
+  this->remote_ = remote;
+}
 
-  auto raw = this->recv_->read_raw();
+void RubicsonComponent::loop() {
+  if (!this->remote_) return;
+
+  auto raw = this->remote_->read_raw();
   if (raw.empty()) return;
 
-  Frame frame;
-  if (!this->decode_raw_(raw, frame)) return;
-  if (!frame.valid) return;
+  FrameBits fb;
+  if (!this->decode_raw_(raw, fb)) return;
 
-  // --- FIELD EXTRACTION (rtl_433 logic port) ---
+  buffer_.push_back(fb);
 
-  uint8_t id = (frame.data >> 24) & 0xFF;
-  uint8_t flags = (frame.data >> 16) & 0xFF;
+  if (buffer_.size() < REPEATS) return;
+
+  std::vector<int> bits;
+  if (!this->build_voted_frame_(bits)) {
+    buffer_.clear();
+    return;
+  }
+
+  buffer_.clear();
+
+  if (bits.size() < 36) return;
+
+  uint64_t data = 0;
+  for (size_t i = 0; i < 36; i++) {
+    data <<= 1;
+    data |= bits[i];
+  }
+
+  if (!this->crc_ok_(data)) return;
+
+  uint8_t id = (data >> 24) & 0xFF;
+  uint8_t flags = (data >> 16) & 0xFF;
+
   bool battery_ok = flags & 0x80;
   uint8_t channel = ((flags >> 4) & 0x03) + 1;
 
-  int16_t temp_raw = frame.data & 0x0FFF;
+  int16_t temp_raw = data & 0x0FFF;
   if (temp_raw & 0x0800) temp_raw |= 0xF000;
 
   float temp_c = temp_raw * 0.1f;
 
-  if (this->temperature_ != nullptr) {
+  if (this->temperature_)
     this->temperature_->publish_state(temp_c);
-  }
 
-  if (this->battery_ != nullptr) {
+  if (this->battery_)
     this->battery_->publish_state(battery_ok);
-  }
 
   ESP_LOGD(TAG, "id=%d ch=%d temp=%.1f battery=%d",
            id, channel, temp_c, battery_ok);
 }
 
-void RubicsonComponent::dump_config() {
-  ESP_LOGCONFIG("rubicson", "Rubicson loaded");
-}
-
-// ------------------------------------------------------------
-// RAW → BIT DECODE (PPM threshold model)
-// ------------------------------------------------------------
-
-bool RubicsonComponent::decode_raw_(const std::vector<int32_t> &raw, Frame &out) {
+bool RubicsonComponent::decode_raw_(const std::vector<int32_t> &raw,
+                                    FrameBits &out) {
   std::vector<int> bits;
-  bits.reserve(64);
 
   for (size_t i = 0; i + 1 < raw.size(); i += 2) {
-    int pulse = raw[i];
     int gap = raw[i + 1];
 
-    // PPM thresholding (based on your rtl_433 analysis)
-    if (gap > 1500) {
-      bits.push_back(1);
-    } else {
-      bits.push_back(0);
-    }
+    // PPM threshold from rtl_433 analysis
+    bits.push_back(gap > 1500 ? 1 : 0);
   }
 
-  return this->decode_bits_(bits, out);
+  out.bits = bits;
+  return bits.size() >= 36;
 }
 
 // ------------------------------------------------------------
-// BITSTREAM → FRAME
+// Majority voting + sync alignment
 // ------------------------------------------------------------
 
-bool RubicsonComponent::decode_bits_(const std::vector<int> &bits, Frame &out) {
-  if (bits.size() < 36) return false;
+bool RubicsonComponent::build_voted_frame_(std::vector<int> &out_bits) {
+  if (buffer_.empty()) return false;
 
-  uint64_t data = 0;
+  size_t max_len = 0;
+  for (auto &b : buffer_)
+    max_len = std::max(max_len, b.bits.size());
 
-  for (int i = 0; i < 36; i++) {
-    data <<= 1;
-    data |= bits[i] & 1;
+  std::vector<int> ref = buffer_[0].bits;
+
+  // find best alignment for all frames vs reference
+  std::vector<std::vector<int>> aligned;
+
+  for (auto &b : buffer_) {
+    int shift = align_shift_(ref, b.bits);
+
+    std::vector<int> shifted(max_len, 0);
+
+    for (size_t i = 0; i < b.bits.size(); i++) {
+      int j = (int)i + shift;
+      if (j >= 0 && j < (int)max_len)
+        shifted[j] = b.bits[i];
+    }
+
+    aligned.push_back(shifted);
   }
 
-  if (!this->crc_ok_(data)) return false;
+  out_bits.assign(max_len, 0);
 
-  out.data = data;
-  out.bits = 36;
-  out.valid = true;
+  for (size_t i = 0; i < max_len; i++) {
+    int ones = 0, zeros = 0;
+
+    for (auto &a : aligned) {
+      if (a[i]) ones++;
+      else zeros++;
+    }
+
+    out_bits[i] = (ones > zeros);
+  }
+
   return true;
 }
 
+int RubicsonComponent::align_shift_(const std::vector<int> &ref,
+                                     const std::vector<int> &cand) {
+  int best_shift = 0;
+  int best_score = -1;
+
+  for (int shift = -4; shift <= 4; shift++) {
+    int score = 0;
+
+    for (size_t i = 0; i < ref.size(); i++) {
+      int j = (int)i + shift;
+      if (j < 0 || j >= (int)cand.size()) continue;
+
+      if (ref[i] == cand[j]) score++;
+    }
+
+    if (score > best_score) {
+      best_score = score;
+      best_shift = shift;
+    }
+  }
+
+  return best_shift;
+}
+
 // ------------------------------------------------------------
-// CRC8 (0x31, init 0x6c)
+// CRC-8 (poly 0x31, init 0x6c)
 // ------------------------------------------------------------
 
 bool RubicsonComponent::crc_ok_(uint64_t data) {
@@ -103,6 +161,7 @@ bool RubicsonComponent::crc_ok_(uint64_t data) {
 
   for (int i = 0; i < 5; i++) {
     uint8_t b = (data >> (i * 8)) & 0xFF;
+
     crc ^= b;
 
     for (int j = 0; j < 8; j++) {
@@ -114,38 +173,6 @@ bool RubicsonComponent::crc_ok_(uint64_t data) {
   }
 
   return crc == 0;
-}
-
-bool RubicsonComponent::align_and_vote_(
-    const std::vector<std::vector<int>> &packets,
-    std::vector<int> &out_bits) {
-
-  if (packets.size() < 3) return false;  // need repeats
-
-  size_t max_len = 0;
-  for (auto &p : packets)
-    max_len = std::max(max_len, p.size());
-
-  out_bits.assign(max_len, 0);
-
-  // ---------------------------
-  // 1. MAJORITY VOTE PER BIT
-  // ---------------------------
-  for (size_t i = 0; i < max_len; i++) {
-    int ones = 0;
-    int zeros = 0;
-
-    for (auto &p : packets) {
-      if (i < p.size()) {
-        if (p[i]) ones++;
-        else zeros++;
-      }
-    }
-
-    out_bits[i] = (ones > zeros) ? 1 : 0;
-  }
-
-  return true;
 }
 
 }  // namespace esphome::rubicson
