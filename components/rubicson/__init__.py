@@ -30,6 +30,9 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
 
+    cg.add_library("sensor")
+    cg.add_library("binary_sensor")
+
     if "temperature" in config:
         sens = await sensor.new_sensor(config["temperature"])
         cg.add(var.set_temperature_sensor(sens))
