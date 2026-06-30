@@ -23,6 +23,9 @@ void RubicsonComponent::loop() {
   // nothing needed (event-driven via remote_receiver)
 }
 
+void RubicsonComponent::dump_config() {
+  ESP_LOGCONFIG("rubicson", "Rubicson loaded");
+}
 
 /* -----------------------------
  * Pulse decoding helpers
