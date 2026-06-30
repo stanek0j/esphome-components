@@ -1,39 +1,12 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
+from esphome.components import sensor, binary_sensor, remote_receiver
 
-from esphome.const import CONF_ID
-from esphome.components import sensor, binary_sensor
-
-AUTO_LOAD = ["sensor", "binary_sensor"]
 DEPENDENCIES = ["remote_receiver"]
 
 rubicson_ns = cg.esphome_ns.namespace("rubicson")
 RubicsonComponent = rubicson_ns.class_("RubicsonComponent", cg.Component)
 
-CONFIG_SCHEMA = cv.Schema(
-    {
-        cv.GenerateID(): cv.declare_id(RubicsonComponent),
-        cv.Optional("temperature"): sensor.sensor_schema(
-            unit_of_measurement="°C",
-            accuracy_decimals=1,
-            device_class="temperature",
-            state_class="measurement",
-        ),
-        cv.Optional("battery"): binary_sensor.binary_sensor_schema(
-            device_class="battery"
-        ),
-    }
-).extend(cv.COMPONENT_SCHEMA)
-
-
-async def to_code(config):
-    var = cg.new_Pvariable(config[CONF_ID])
-    await cg.register_component(var, config)
-
-    if "temperature" in config:
-        sens = await sensor.new_sensor(config["temperature"])
-        cg.add(var.set_temperature_sensor(sens))
-
-    if "battery" in config:
-        sens = await binary_sensor.new_binary_sensor(config["battery"])
-        cg.add(var.set_battery_sensor(sens))
+CONFIG_SCHEMA = cv.Schema({
+    cv.GenerateID(): cv.declare_id(RubicsonComponent),
+}).extend(cv.COMPONENT_SCHEMA)
