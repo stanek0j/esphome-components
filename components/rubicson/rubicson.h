@@ -3,61 +3,41 @@
 #include "esphome/core/component.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
-#include "esphome/components/remote_base/remote_base.h"
+#include "esphome/components/remote_base/remote_receiver.h"
 
-#include <map>
 #include <vector>
 
 namespace esphome::rubicson {
 
-class RubicsonComponent : public Component,
-                           public remote_base::RemoteReceiverListener {
+class RubicsonComponent : public Component {
  public:
   void setup() override;
   void loop() override;
   void dump_config() override;
 
-  bool on_receive(remote_base::RemoteReceiveData data) override;
-
-  void set_temperature_sensor(sensor::Sensor *sensor) {
-    default_temperature_sensor_ = sensor;
-  }
-
-  void set_battery_sensor(binary_sensor::BinarySensor *sensor) {
-    default_battery_sensor_ = sensor;
-  }
+  void set_remote_receiver(remote_base::RemoteReceiverComponent *recv);
+  void set_temperature_sensor(sensor::Sensor *s);
+  void set_battery_sensor(binary_sensor::BinarySensor *s);
 
  protected:
+  remote_base::RemoteReceiverComponent *recv_{nullptr};
 
-  struct Frame {
-    uint8_t id = 0;
-    uint8_t channel = 0;
-    bool battery_ok = false;
-    float temperature = 0.0f;
+  sensor::Sensor *temperature_{nullptr};
+  binary_sensor::BinarySensor *battery_{nullptr};
+
+  static constexpr size_t REPEATS = 12;
+  
+  struct FrameBits {
+    std::vector<int> bits;
   };
 
-  struct DeviceState {
-    std::vector<Frame> frames;
-    float last_temperature = NAN;
-    uint32_t last_update = 0;
-    int vote_score = 0;
+  std::vector<FrameBits> buffer_;
 
-    sensor::Sensor *temperature_sensor = nullptr;
-    binary_sensor::BinarySensor *battery_sensor = nullptr;
-  };
+  bool decode_raw_(const std::vector<int32_t> &raw, FrameBits &out);
+  bool build_voted_frame_(std::vector<int> &out_bits);
+  int align_shift_(const std::vector<int> &ref, const std::vector<int> &cand);
 
-  std::map<uint32_t, DeviceState> devices_;
-
-  sensor::Sensor *default_temperature_sensor_{nullptr};
-  binary_sensor::BinarySensor *default_battery_sensor_{nullptr};
-
-  uint32_t key_(uint8_t id, uint8_t channel);
-
-  bool decode_(remote_base::RemoteReceiveData data, Frame &out);
-
-  void process_frame_(const Frame &frame);
-  void update_device_(DeviceState &dev, const Frame &frame);
-  void flush_device_(DeviceState &dev, uint32_t key);
+  bool crc_ok_(uint64_t data);
 };
 
 }  // namespace esphome::rubicson

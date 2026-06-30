@@ -1,239 +1,151 @@
 #include "rubicson.h"
 #include "esphome/core/log.h"
 
+#include <cmath>
+
 namespace esphome::rubicson {
 
 static const char *TAG = "rubicson";
 
-/* -----------------------------
- * Device key helper
- * ----------------------------- */
-uint32_t RubicsonComponent::key_(uint8_t id, uint8_t channel) {
-  return (uint32_t(id) << 8) | channel;
-}
-
-/* -----------------------------
- * Setup
- * ----------------------------- */
 void RubicsonComponent::setup() {
   ESP_LOGI(TAG, "Rubicson receiver initialized");
 }
 
 void RubicsonComponent::loop() {
-  // nothing needed (event-driven via remote_receiver)
+  if (!this->recv_) return;
+
+  auto raw = this->recv_->read_raw();
+  if (raw.empty()) return;
+
+  Frame frame;
+  if (!this->decode_raw_(raw, frame)) return;
+  if (!frame.valid) return;
+
+  // --- FIELD EXTRACTION (rtl_433 logic port) ---
+
+  uint8_t id = (frame.data >> 24) & 0xFF;
+  uint8_t flags = (frame.data >> 16) & 0xFF;
+  bool battery_ok = flags & 0x80;
+  uint8_t channel = ((flags >> 4) & 0x03) + 1;
+
+  int16_t temp_raw = frame.data & 0x0FFF;
+  if (temp_raw & 0x0800) temp_raw |= 0xF000;
+
+  float temp_c = temp_raw * 0.1f;
+
+  if (this->temperature_ != nullptr) {
+    this->temperature_->publish_state(temp_c);
+  }
+
+  if (this->battery_ != nullptr) {
+    this->battery_->publish_state(battery_ok);
+  }
+
+  ESP_LOGD(TAG, "id=%d ch=%d temp=%.1f battery=%d",
+           id, channel, temp_c, battery_ok);
 }
 
 void RubicsonComponent::dump_config() {
   ESP_LOGCONFIG("rubicson", "Rubicson loaded");
 }
 
-/* -----------------------------
- * Pulse decoding helpers
- * ----------------------------- */
+// ------------------------------------------------------------
+// RAW → BIT DECODE (PPM threshold model)
+// ------------------------------------------------------------
 
-static inline bool is_short(uint32_t t) { return t > 80 && t < 200; }
-static inline bool is_long(uint32_t t)  { return t > 350 && t < 650; }
-
-static inline bool is_gap0(uint32_t t)  { return t > 800 && t < 1300; }
-static inline bool is_gap1(uint32_t t)  { return t > 1600 && t < 2400; }
-
-/* -----------------------------
- * Decode RF frame → logical frame
- * ----------------------------- */
-bool RubicsonComponent::decode_(remote_base::RemoteReceiveData data, Frame &out) {
+bool RubicsonComponent::decode_raw_(const std::vector<int32_t> &raw, Frame &out) {
   std::vector<int> bits;
+  bits.reserve(64);
 
-  while (data.expect_more()) {
-    auto pulse = data.pop_pulse();
-    auto gap = data.pop_gap();
+  for (size_t i = 0; i + 1 < raw.size(); i += 2) {
+    int pulse = raw[i];
+    int gap = raw[i + 1];
 
-    if (!pulse.has_value() || !gap.has_value())
-      break;
-
-    uint32_t p = pulse->duration;
-    uint32_t g = gap->duration;
-
-    // sync rejection
-    if (p < 200 || p > 800)
-      continue;
-
-    if (g > 800 && g < 1300) {
-      bits.push_back(0);
-    } else if (g > 1600 && g < 2400) {
+    // PPM thresholding (based on your rtl_433 analysis)
+    if (gap > 1500) {
       bits.push_back(1);
-    } else if (g > 3000) {
-      // reset / frame boundary
-      if (bits.size() >= 36)
-        break;
-      else
-        bits.clear();
+    } else {
+      bits.push_back(0);
     }
-
-    if (bits.size() > 64)
-      break;
   }
 
-  if (bits.size() < 36)
-    return false;
+  return this->decode_bits_(bits, out);
+}
 
-  // -----------------------------
-  // frame extraction
-  // -----------------------------
-  int offset = bits.size() - 36;
+// ------------------------------------------------------------
+// BITSTREAM → FRAME
+// ------------------------------------------------------------
 
-  uint8_t b[5] = {0};
+bool RubicsonComponent::decode_bits_(const std::vector<int> &bits, Frame &out) {
+  if (bits.size() < 36) return false;
+
+  uint64_t data = 0;
 
   for (int i = 0; i < 36; i++) {
-    b[i / 8] <<= 1;
-    b[i / 8] |= bits[offset + i];
+    data <<= 1;
+    data |= bits[i] & 1;
   }
 
-  // -----------------------------
-  // CRC (rtl_433 compatible)
-  // -----------------------------
-  uint8_t tmp[5];
-  tmp[0] = b[0];
-  tmp[1] = b[1];
-  tmp[2] = b[2];
-  tmp[3] = b[3] & 0xF0;
-  tmp[4] = ((b[3] & 0x0F) << 4) | (b[4] >> 4);
+  if (!this->crc_ok_(data)) return false;
 
-  auto crc8 = [](uint8_t *data, int len) -> uint8_t {
-    uint8_t crc = 0x6C;
-    for (int i = 0; i < len; i++) {
-      crc ^= data[i];
-      for (int j = 0; j < 8; j++) {
-        crc = (crc & 0x80) ? (crc << 1) ^ 0x31 : (crc << 1);
-      }
-    }
-    return crc;
-  };
-
-  if (crc8(tmp, 5) != 0)
-    return false;
-
-  // -----------------------------
-  // decode fields
-  // -----------------------------
-  out.id = b[0];
-  out.battery_ok = (b[1] & 0x80) != 0;
-  out.channel = ((b[1] & 0x30) >> 4) + 1;
-
-  int16_t temp_raw = (int16_t)((b[1] << 12) | (b[2] << 4));
-  out.temperature = (temp_raw >> 4) * 0.1f;
-
+  out.data = data;
+  out.bits = 36;
+  out.valid = true;
   return true;
 }
 
-/* -----------------------------
- * RF frame entry point
- * ----------------------------- */
-bool RubicsonComponent::on_receive(remote_base::RemoteReceiveData data) {
-  Frame frame;
+// ------------------------------------------------------------
+// CRC8 (0x31, init 0x6c)
+// ------------------------------------------------------------
 
-  if (!decode_(data, frame))
-    return false;
+bool RubicsonComponent::crc_ok_(uint64_t data) {
+  uint8_t crc = 0x6c;
 
-  process_frame_(frame);
-  return true;
-}
+  for (int i = 0; i < 5; i++) {
+    uint8_t b = (data >> (i * 8)) & 0xFF;
+    crc ^= b;
 
-/* -----------------------------
- * Frame routing
- * ----------------------------- */
-void RubicsonComponent::process_frame_(const Frame &frame) {
-  uint32_t key = key_(frame.id, frame.channel);
-  auto &dev = devices_[key];
-
-  update_device_(dev, frame);
-}
-
-/* -----------------------------
- * Device update (burst buffer)
- * ----------------------------- */
-void RubicsonComponent::update_device_(DeviceState &dev, const Frame &frame) {
-  uint32_t now = millis();
-
-  // reset if stale
-  if (now - dev.last_update > 5000) {
-    dev.frames.clear();
-    dev.vote_score = 0;
+    for (int j = 0; j < 8; j++) {
+      if (crc & 0x80)
+        crc = (crc << 1) ^ 0x31;
+      else
+        crc <<= 1;
+    }
   }
 
-  dev.last_update = now;
-  dev.frames.push_back(frame);
-
-  if (dev.frames.size() > 12)
-    dev.frames.erase(dev.frames.begin());
-
-  flush_device_(dev, 0);
+  return crc == 0;
 }
 
-/* -----------------------------
- * Burst stabilization + publish
- * ----------------------------- */
-void RubicsonComponent::flush_device_(DeviceState &dev, uint32_t key) {
-  if (dev.frames.size() < 6)
-    return;
+bool RubicsonComponent::align_and_vote_(
+    const std::vector<std::vector<int>> &packets,
+    std::vector<int> &out_bits) {
 
-  Frame best;
-  int best_score = 0;
+  if (packets.size() < 3) return false;  // need repeats
 
-  for (auto &f : dev.frames) {
-    int score = 0;
+  size_t max_len = 0;
+  for (auto &p : packets)
+    max_len = std::max(max_len, p.size());
 
-    for (auto &g : dev.frames) {
-      if (f.id == g.id &&
-          f.channel == g.channel &&
-          fabs(f.temperature - g.temperature) < 0.3f) {
-        score++;
+  out_bits.assign(max_len, 0);
+
+  // ---------------------------
+  // 1. MAJORITY VOTE PER BIT
+  // ---------------------------
+  for (size_t i = 0; i < max_len; i++) {
+    int ones = 0;
+    int zeros = 0;
+
+    for (auto &p : packets) {
+      if (i < p.size()) {
+        if (p[i]) ones++;
+        else zeros++;
       }
     }
 
-    if (score > best_score) {
-      best_score = score;
-      best = f;
-    }
+    out_bits[i] = (ones > zeros) ? 1 : 0;
   }
 
-  if (best_score < 3)
-    return;
-
-  if (!isnan(dev.last_temperature)) {
-    if (fabs(best.temperature - dev.last_temperature) < 0.2f)
-      return;
-  }
-
-  dev.last_temperature = best.temperature;
-  dev.vote_score = best_score;
-
-  ESP_LOGI(TAG,
-           "DEV id=%u ch=%u temp=%.1f bat=%d votes=%d",
-           best.id,
-           best.channel,
-           best.temperature,
-           best.battery_ok,
-           best_score);
-
-  // -----------------------------
-  // publish temperature
-  // -----------------------------
-  if (dev.temperature_sensor != nullptr) {
-    dev.temperature_sensor->publish_state(best.temperature);
-  } else if (default_temperature_sensor_ != nullptr) {
-    default_temperature_sensor_->publish_state(best.temperature);
-  }
-
-  // -----------------------------
-  // publish battery (binary sensor)
-  // -----------------------------
-  bool battery_low = !best.battery_ok;
-
-  if (dev.battery_sensor != nullptr) {
-    dev.battery_sensor->publish_state(battery_low);
-  } else if (default_battery_sensor_ != nullptr) {
-    default_battery_sensor_->publish_state(battery_low);
-  }
+  return true;
 }
 
 }  // namespace esphome::rubicson
