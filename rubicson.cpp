@@ -1,4 +1,4 @@
-#include "rubicson_sensor.h"
+#include "rubicson.h"
 #include "esphome/core/log.h"
 
 namespace esphome::rubicson {
