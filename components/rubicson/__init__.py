@@ -4,6 +4,7 @@ from esphome.components import sensor, binary_sensor
 from esphome.const import CONF_ID
 
 DEPENDENCIES = ["remote_receiver"]
+AUTO_LOAD = ["sensor", "binary_sensor"]
 
 rubicson_ns = cg.esphome_ns.namespace("rubicson")
 RubicsonComponent = rubicson_ns.class_("RubicsonComponent", cg.Component)
