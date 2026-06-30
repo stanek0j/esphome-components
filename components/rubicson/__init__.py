@@ -36,4 +36,4 @@ async def to_code(config):
 
     if "battery" in config:
         sens = await binary_sensor.new_binary_sensor(config["battery"])
-        cg.add(var.set_default_battery_sensor(sens))
+        cg.add(var.set_battery_sensor(sens))
