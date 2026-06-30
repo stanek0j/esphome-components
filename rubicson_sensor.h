@@ -8,8 +8,7 @@
 #include <map>
 #include <vector>
 
-namespace esphome {
-namespace rubicson {
+namespace esphome::rubicson {
 
 class RubicsonComponent : public Component,
                            public remote_base::RemoteReceiverListener {
@@ -60,5 +59,4 @@ class RubicsonComponent : public Component,
   void flush_device_(DeviceState &dev, uint32_t key);
 };
 
-}  // namespace rubicson
-}  // namespace esphome
+}  // namespace esphome::rubicson

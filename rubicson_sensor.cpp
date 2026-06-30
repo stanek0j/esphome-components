@@ -1,8 +1,7 @@
 #include "rubicson_sensor.h"
 #include "esphome/core/log.h"
 
-namespace esphome {
-namespace rubicson {
+namespace esphome::rubicson {
 
 static const char *TAG = "rubicson";
 
@@ -234,5 +233,4 @@ void RubicsonComponent::flush_device_(DeviceState &dev, uint32_t key) {
   }
 }
 
-}  // namespace rubicson
-}  // namespace esphome
+}  // namespace esphome::rubicson
