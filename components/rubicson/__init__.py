@@ -4,6 +4,7 @@ import esphome.config_validation as cv
 from esphome.const import CONF_ID
 from esphome.components import sensor, binary_sensor
 
+AUTO_LOAD = ["sensor", "binary_sensor"]
 DEPENDENCIES = ["remote_receiver"]
 
 rubicson_ns = cg.esphome_ns.namespace("rubicson")
