@@ -11,14 +11,14 @@ void RubicsonComponent::setup() {
   ESP_LOGI(TAG, "Rubicson receiver initialized");
 }
 
-void RubicsonComponent::set_remote_receiver(remote_base::RemoteReceiverComponent *remote) {
-  this->remote_ = remote;
+void RubicsonComponent::set_remote_receiver(remote_receiver::RemoteReceiverComponent *recv) {
+  this->recv_ = recv;
 }
 
 void RubicsonComponent::loop() {
-  if (!this->remote_) return;
+  if (!this->recv_) return;
 
-  auto raw = this->remote_->read_raw();
+  auto raw = this->recv_->read_raw();
   if (raw.empty()) return;
 
   FrameBits fb;

@@ -15,12 +15,12 @@ class RubicsonComponent : public Component {
   void loop() override;
   void dump_config() override;
 
-  void set_remote_receiver(remote_base::RemoteReceiverComponent *recv);
+  void set_remote_receiver(remote_receiver::RemoteReceiverComponent *recv);
   void set_temperature_sensor(sensor::Sensor *s);
   void set_battery_sensor(binary_sensor::BinarySensor *s);
 
  protected:
-  remote_base::RemoteReceiverComponent *recv_{nullptr};
+  remote_receiver::RemoteReceiverComponent *recv_{nullptr};
 
   sensor::Sensor *temperature_{nullptr};
   binary_sensor::BinarySensor *battery_{nullptr};
