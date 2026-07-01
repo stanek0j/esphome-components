@@ -1,43 +1,47 @@
+/**
+ * @file rubicson.h
+ * @brief ESPHome decoder for Rubicson 433 MHz OOK-PWM thermometers.
+ */
+
 #pragma once
 
 #include "esphome/core/component.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
-#include "esphome/components/remote_receiver/remote_receiver.h"
+#include "esphome/components/remote_base/remote_base.h"
 
-#include <vector>
+namespace esphome {
+namespace rubicson {
 
-namespace esphome::rubicson {
-
-class RubicsonComponent : public Component {
+class RubicsonComponent : public Component,
+                          public remote_base::RemoteReceiverListener {
  public:
-  void setup() override;
-  void loop() override;
-  void dump_config() override;
+  // ── Setters called from generated Python code ─────────────────────────────
+  void set_temperature_sensor(sensor::Sensor *s)          { temperature_sensor_ = s; }
+  void set_battery_low_sensor(binary_sensor::BinarySensor *s) { battery_low_sensor_ = s; }
 
-  void set_remote_receiver(remote_receiver::RemoteReceiverComponent *recv);
-  void set_temperature_sensor(sensor::Sensor *s);
-  void set_battery_sensor(binary_sensor::BinarySensor *s);
+  /// Accept only packets from this 8-bit sensor ID.  Pass -1 to accept any.
+  void set_sensor_id(int id) { sensor_id_ = id; }
+
+  /// Accept only packets from this channel (0–3).  Pass -1 to accept any.
+  void set_channel(int ch)   { channel_ = ch; }
+
+  // ── ESPHome overrides ─────────────────────────────────────────────────────
+  float get_setup_priority() const override { return setup_priority::DATA; }
+
+  /// Called by remote_receiver for every captured burst.
+  bool on_receive(remote_base::RemoteReceiveData data) override;
 
  protected:
-  remote_receiver::RemoteReceiverComponent *recv_{nullptr};
+  sensor::Sensor              *temperature_sensor_{nullptr};
+  binary_sensor::BinarySensor *battery_low_sensor_{nullptr};
 
-  sensor::Sensor *temperature_{nullptr};
-  binary_sensor::BinarySensor *battery_{nullptr};
+  int sensor_id_{-1};  ///< -1 = accept any sensor ID
+  int channel_{-1};    ///< -1 = accept any channel
 
-  static constexpr size_t REPEATS = 12;
-  
-  struct FrameBits {
-    std::vector<int> bits;
-  };
-
-  std::vector<FrameBits> buffer_;
-
-  bool decode_raw_(const std::vector<int32_t> &raw, FrameBits &out);
-  bool build_voted_frame_(std::vector<int> &out_bits);
-  int align_shift_(const std::vector<int> &ref, const std::vector<int> &cand);
-
-  bool crc_ok_(uint64_t data);
+  /// Attempt to decode one 36-bit Rubicson packet starting at raw[start].
+  bool try_decode_(const remote_base::RawTimings &raw, size_t start);
 };
 
-}  // namespace esphome::rubicson
+} // namespace rubicson
+} // namespace esphome
