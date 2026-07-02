@@ -121,13 +121,17 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
     // ── Checksum ──────────────────────────────────────────────────────────────
     // XOR the low nibbles of the first four bytes.  Must equal 0x0F.
     // (Identical to rtl_433 rubicson_callback checksum.)
-    const uint8_t crc_nibble =
-        (bytes[0] ^ bytes[1] ^ bytes[2] ^ bytes[3]) & 0x0Fu;
+    uint8_t tmp[5];
+    tmp[0] = bytes[0];
+    tmp[1] = bytes[1];
+    tmp[2] = bytes[2];
+    tmp[3] = bytes[3] & 0xF0;
+    tmp[4] = ((bytes[3] & 0x0F) << 4) | (bytes[4] >> 4);
 
-    if (crc_nibble != 0x0Fu) {
+    if (crc8(tmp, 5) != 0) {
         ESP_LOGV(TAG,
-                 "Checksum FAIL  bytes=%02X %02X %02X %02X  crc_nibble=0x%X (want 0xF)",
-                 bytes[0], bytes[1], bytes[2], bytes[3], crc_nibble);
+                 "Checksum FAIL  bytes=%02X %02X %02X %02X %02X",
+                 bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]);
         return false;
     }
 
