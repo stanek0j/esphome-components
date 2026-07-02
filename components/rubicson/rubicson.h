@@ -41,6 +41,8 @@ class RubicsonComponent : public Component,
 
   /// Attempt to decode one 36-bit Rubicson packet starting at raw[start].
   bool try_decode_(const remote_base::RawTimings &raw, size_t start);
+  /// Compute the CRC8 checksum of the first 4 bytes of a Rubicson packet.
+  uint8_t crc8_(const uint8_t *data, size_t len);
 };
 
 } // namespace rubicson

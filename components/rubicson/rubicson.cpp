@@ -12,27 +12,28 @@
  * Physical layer
  * ──────────────
  *   Carrier   : 433.92 MHz OOK/ASK
- *   Encoding  : PWM — mark duration carries the bit value
- *                 short mark  ≈  500 µs  → logical 0
- *                 long  mark  ≈ 1000 µs  → logical 1
- *               inter-bit space ≈ 500 µs
+ *   Encoding  : PPM — gap duration carries the bit value
+ *                 pulse      ≈  500 µs
+ *                 short gap  ≈ 1000 µs  → logical 0
+ *                 long  gap  ≈ 2000 µs  → logical 1
  *   Repetition: sensor broadcasts 3–12 identical packets per update
- *   Gap       : > 8 ms between repetitions (rtl_433 reset_limit)
+ *   Gap       : > 8 ms between data bursts (rtl_433 reset_limit)
  *
  * 36-bit packet layout (bit 0 = first received = MSB of byte 0)
  * ──────────────────────────────────────────────────────────────
  *   bits  0– 7  byte[0]  Sensor ID  (random; re-randomised on battery swap)
  *   bit      8  byte[1]  battery_ok   1 = OK, 0 = replace
  *   bit      9  byte[1]  don't-care
- *   bits 10–11  byte[1]  Channel  0–3
+ *   bits 10–11  byte[1]  Channel 0–3
  *   bits 12–15  byte[1]  Temperature[11:8]   high nibble
  *   bits 16–23  byte[2]  Temperature[7:0]    low byte
- *   bits 24–31  byte[3]  Unknown / checksum source byte
- *   bits 32–35  byte[4]  Unused tail nibble
+ *   bits 24–27  byte[3]  Unknown (0x0F in rtl_433; may be a version or model ID)
+ *   bits 28–31  byte[3]  checksum[7:4]  high nibble of CRC8
+ *   bits 32–35  byte[4]  checksum[3:0]  low nibble of CRC8
  *
  * Checksum (rtl_433 convention)
  * ──────────────────────────────
- *   (byte[0] ^ byte[1] ^ byte[2] ^ byte[3]) & 0x0F == 0x0F
+ *   CRC8: polynominal: x^8 + x^5 + x^4 + 1  (0x31), initial value 0x6C
  *
  * Temperature
  * ───────────
@@ -51,35 +52,20 @@ static const char *const TAG = "rubicson";
 
 // ── Pulse timing windows (µs) ─────────────────────────────────────────────────
 //
-//  rtl_433 reference values: short_width = 124 µs, long_width = 488 µs
+//  rtl_433 reference values:
+//    • short_pulse =  124 µs, long_pulse =  488 µs
+//    • short_gap   =  972 µs, long_gap   = 1952 µs
+//    • reset_gap   = 3916 µs
 //
-//  The ±50 % windows absorb:
-//    • ESPHome remote_receiver ISR jitter  (can be tens of µs on ESP32/8266)
-//    • Rubicson crystal tolerance          (typically ±0.5 %)
-//    • CC1101 demodulator pulse distortion
-//
-//  The midpoint 750 µs cleanly separates the two bit classes.
-//
-//  Short pulse   128 µs
-//  Long pulse    488 µs
-//  Short gap     972 µs
-//  Long gap     1952 µs
-//  Reset gap    3916 µs
-//
-static constexpr int32_t kMarkShortMin = 100;   // minimum valid short mark  → bit 0
-static constexpr int32_t kMarkBoundary = 350;   // everything < 350 → 0, ≥ 350 → 1
-static constexpr int32_t kMarkLongMax  = 600;  // maximum valid long  mark  → bit 1
+static inline bool is_pulse(int32_t t) { return t > 100 && t < 650; }
+static inline bool is_gap0(int32_t t) { return t > -1500 && t <=  -500; }
+static inline bool is_gap1(int32_t t) { return t > -2500 && t <= -1500; }
+static inline bool is_reset(int32_t t) { return t < -3500; }
 
-//  Inter-bit space is nominally the same duration as a short mark (≈ 500 µs).
-//  Upper bound must stay well below the 8 ms inter-packet gap so we never
-//  mistake a packet boundary for an inter-bit gap.
-static constexpr int32_t kGapMin = 100;
-static constexpr int32_t kGapMax = 1600;
-
-static constexpr size_t kBits       = 36;
+static constexpr size_t msgBits = 36;
 // Minimum raw timings needed: 36 marks + 35 spaces (last trailing space
 // may be absent when the buffer ends exactly at the packet boundary).
-static constexpr size_t kMinRawSize = kBits * 2 - 1;
+static constexpr size_t msgMinRawSize = msgBits * 2 - 1;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  try_decode_()  —  attempt to parse one Rubicson packet at raw[start]
@@ -87,54 +73,45 @@ static constexpr size_t kMinRawSize = kBits * 2 - 1;
 
 bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
                                     size_t start) {
-    if (raw.size() < start + kMinRawSize)
+    if (raw.size() < start + msgMinRawSize)
         return false;
 
     // Accumulate decoded bits here.
     // 36 bits fit in 5 bytes; byte[4] only uses its upper nibble.
     uint8_t bytes[5] = {};
 
-    for (size_t bit = 0; bit < kBits; ++bit) {
-        const size_t mark_pos  = start + bit * 2u;
-        const size_t space_pos = mark_pos + 1u;
+    for (size_t bit = 0; bit < msgBits; ++bit) {
+        const size_t pulse_pos  = start + bit * 2u;
+        const size_t gap_pos = pulse_pos + 1u;
 
-        // ── Mark ─────────────────────────────────────────────────────────────
-        // In ESPHome raw timings, marks are positive integers (µs).
-        const int32_t mark = raw[mark_pos];
+        // ── Pulse ─────────────────────────────────────────────────────────────
+        // In ESPHome raw timings, pulses are positive integers (µs).
+        if (!is_pulse(raw[pulse_pos]))
+            return false;   // Expected pulse, got gap or implausible duration
 
-        if (mark <= 0)
-            return false;   // Got a space where a mark was expected
-
-        uint8_t bval;
-        if (mark >= kMarkShortMin && mark < kMarkBoundary) {
-            bval = 0;
-        } else if (mark >= kMarkBoundary && mark <= kMarkLongMax) {
-            bval = 1;
-        } else {
-            // Duration outside both Rubicson windows — not our protocol
-            return false;
-        }
-
-        // Pack bit MSB-first:
-        //   bit 0  → bit 7 of bytes[0]
-        //   bit 7  → bit 0 of bytes[0]
-        //   bit 8  → bit 7 of bytes[1]  … etc.
-        bytes[bit >> 3u] |= static_cast<uint8_t>(bval << (7u - (bit & 7u)));
-
-        // ── Space ────────────────────────────────────────────────────────────
-        // Spaces are negative integers in ESPHome raw timings.
-        // Skip validation after the very last bit (space may be missing).
-        if (bit < kBits - 1u) {
-            if (space_pos >= raw.size())
+        // ── Gap ────────────────────────────────────────────────────────────
+        // Gaps are negative integers in ESPHome raw timings.
+        // Skip validation after the very last bit (gap may be missing).
+        if (bit < msgBits - 1u) {
+            if (gap_pos >= raw.size())
                 return false;
 
-            const int32_t sp = raw[space_pos];
-            if (sp >= 0)
-                return false;               // Expected space, got mark
+            const int32_t gap = raw[gap_pos];
+            uint8_t bval;
+            if (is_gap0(gap)) {
+                bval = 0;
+            } else if (is_gap1(gap)) {
+                bval = 1;
+            } else {
+                // Duration outside both Rubicson windows — not our protocol
+                return false;
+            }
 
-            const int32_t gap = -sp;        // Make positive for comparison
-            if (gap < kGapMin || gap > kGapMax)
-                return false;               // Implausible inter-bit gap
+            // Pack bit MSB-first:
+            //   bit 0  → bit 7 of bytes[0]
+            //   bit 7  → bit 0 of bytes[0]
+            //   bit 8  → bit 7 of bytes[1]  … etc.
+            bytes[bit >> 3u] |= static_cast<uint8_t>(bval << (7u - (bit & 7u)));
         }
     }
 
@@ -214,6 +191,27 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
         battery_low_sensor_->publish_state(!battery_ok);
 
     return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  crc8_()  —  Compute CRC8 checksum
+// ─────────────────────────────────────────────────────────────────────────────
+
+uint8_t RubicsonComponent::crc8_(const uint8_t *data, size_t len) {
+    uint8_t crc = 0x6cu;
+
+    for (size_t i = 0; i < len; ++i) {
+        crc ^= data[i];
+
+        for (uint8_t j = 0; j < 8; ++j) {
+            if (crc & 0x80u)
+                crc = (crc << 1u) ^ 0x31u;
+            else
+                crc <<= 1u;
+        }
+    }
+
+    return crc;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
