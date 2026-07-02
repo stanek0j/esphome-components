@@ -125,7 +125,7 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
     tmp[3] = bytes[3] & 0xF0;
     tmp[4] = ((bytes[3] & 0x0F) << 4) | (bytes[4] >> 4);
 
-    int crc = crc8(tmp, 5, 0x6c, 0x31, true);
+    int crc = crc8(tmp, 5, 0x6cu, 0x31u, true);
     if (crc != 0) {
         ESP_LOGV(TAG, "Checksum FAIL  bytes=%02X %02X %02X %02X %02X >> crc=%02X",
                  tmp[0], tmp[1], tmp[2], tmp[3], tmp[4], crc);
@@ -165,7 +165,7 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
     // sensor_id_ == -1 means "accept any"
     if (sensor_id_ != -1 &&
         sensor_id != static_cast<uint8_t>(sensor_id_)) {
-        ESP_LOGV(TAG, "Filtered: sensor ID %.3u  (want %.3u)",
+        ESP_LOGV(TAG, "Filtered: sensor ID %u  (want %u)",
                  sensor_id, static_cast<uint8_t>(sensor_id_));
         return false;
     }
@@ -179,7 +179,7 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
 
     // ── Publish ───────────────────────────────────────────────────────────────
     ESP_LOGD(TAG,
-             "Rubicson decoded — id=%.3u  ch=%u  battery=%s  temp=%.1f °C",
+             "Rubicson decoded — id=%u  ch=%u  battery=%s  temp=%.1f °C",
              sensor_id, channel,
              battery_ok ? "OK" : "LOW",
              temp_c);
