@@ -131,7 +131,7 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
     if (crc != 0) {
         ESP_LOGD(TAG,
                  "Checksum FAIL  bytes=%02X %02X %02X %02X %02X >> crc=%02X",
-                 bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], crc);
+                 tmp[0], tmp[1], tmp[2], tmp[3], tmp[4], crc);
         return false;
     }
 
