@@ -127,7 +127,7 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
     tmp[3] = bytes[3] & 0xF0;
     tmp[4] = ((bytes[3] & 0x0F) << 4) | (bytes[4] >> 4);
 
-    int crc = crc8(tmp, 5);
+    int crc = crc8(tmp, 5, 0x6c, 0x31, false);
     if (crc != 0) {
         ESP_LOGD(TAG,
                  "Checksum FAIL  bytes=%02X %02X %02X %02X %02X >> crc=%02X",
@@ -202,14 +202,14 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
 // ─────────────────────────────────────────────────────────────────────────────
 
 uint8_t RubicsonComponent::crc8_(const uint8_t *data, size_t len) {
-    uint8_t crc = 0x6cu;
+    uint8_t crc = 0x6c;  // Initial value used by rtl_433
 
     for (size_t i = 0; i < len; ++i) {
         crc ^= data[i];
 
         for (uint8_t j = 0; j < 8; ++j) {
-            if (crc & 0x80u)
-                crc = (crc << 1u) ^ 0x31u;
+            if (crc & 0x80)
+                crc = (crc << 1u) ^ 0x31;  // Polynomial x^8 + x^5 + x^4 + 1
             else
                 crc <<= 1u;
         }
