@@ -221,7 +221,7 @@ uint8_t RubicsonComponent::crc8_(const uint8_t *data, size_t len) {
 bool RubicsonComponent::on_receive(remote_base::RemoteReceiveData data) {
     const remote_base::RawTimings &raw = data.get_raw_data();
 
-    if (raw.size() < kMinRawSize)
+    if (raw.size() < msgMinRawSize)
         return false;
 
     bool found = false;
@@ -241,20 +241,20 @@ bool RubicsonComponent::on_receive(remote_base::RemoteReceiveData data) {
     //     try_decode_() will reject it at the first bad timing or checksum
     //     mismatch and the scan resumes at the next candidate position.
     //
-    for (size_t i = 0; i + kMinRawSize <= raw.size(); ++i) {
+    for (size_t i = 0; i + msgMinRawSize <= raw.size(); ++i) {
         // Fast pre-filter: only attempt decode from positions that carry a
-        // mark (positive) whose duration is within the Rubicson mark window.
+        // pulse whose duration is within the Rubicson pulse window.
         // This skips spaces and obviously wrong marks in O(1) per position,
         // keeping the scan cheap for the typical remote_receiver buffer.
         const int32_t v = raw[i];
-        if (v <= 0 || v < kMarkShortMin || v > kMarkLongMax)
+        if (!is_pulse(v))
             continue;
 
         if (try_decode_(raw, i)) {
             found = true;
             // Jump past the decoded packet.
             // Subtract 1 because the loop's ++i will advance one more step.
-            i += kBits * 2u - 1u;
+            i += msgBits * 2u - 1u;
         }
     }
 
