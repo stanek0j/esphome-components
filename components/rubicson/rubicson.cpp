@@ -63,15 +63,13 @@ static inline bool is_gap1(int32_t t) { return t > -2500 && t <= -1500; }
 static inline bool is_reset(int32_t t) { return t < -3500; }
 
 static constexpr size_t msgBits = 36;
-// Minimum raw timings needed: 36 marks + 35 spaces (last trailing space
-// may be absent when the buffer ends exactly at the packet boundary).
-static constexpr size_t msgMinRawSize = msgBits * 2 - 1;
+static constexpr size_t msgMinRawSize = msgBits * 2; // pulse + gap per bit
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  try_decode_()  —  attempt to parse one Rubicson packet at raw[start]
+//  decode_()  —  attempt to parse one Rubicson packet at raw[start]
 // ─────────────────────────────────────────────────────────────────────────────
 
-bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
+bool RubicsonComponent::decode_(const remote_base::RawTimings &raw,
                                     size_t start) {
     if (raw.size() < start + msgMinRawSize)
         return false;
@@ -127,7 +125,7 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
 
     int crc = crc8(tmp, 5, 0x6cu, 0x31u, true);
     if (crc != 0) {
-        ESP_LOGV(TAG, "Checksum FAIL  bytes=%02X %02X %02X %02X %02X >> crc=%02X",
+        ESP_LOGV(TAG, "Checksum FAIL [ bytes:%02X %02X %02X %02X %02X >> crc:%02X ]",
                  tmp[0], tmp[1], tmp[2], tmp[3], tmp[4], crc);
         return false;
     }
@@ -165,23 +163,23 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
     // sensor_id_ == -1 means "accept any"
     if (sensor_id_ != -1 &&
         sensor_id != static_cast<uint8_t>(sensor_id_)) {
-        ESP_LOGV(TAG, "Filtered: sensor ID %u  (want %u)",
+        ESP_LOGV(TAG, "Filtered: sensor ID %u (want %u)",
                  sensor_id, static_cast<uint8_t>(sensor_id_));
         return false;
     }
     // channel_ == -1 means "accept any"
     if (channel_ != -1 &&
         channel != static_cast<uint8_t>(channel_)) {
-        ESP_LOGV(TAG, "Filtered: channel %u  (want %u)",
+        ESP_LOGV(TAG, "Filtered: channel %u (want %u)",
                  channel, static_cast<uint8_t>(channel_));
         return false;
     }
 
     // ── Publish ───────────────────────────────────────────────────────────────
     ESP_LOGD(TAG,
-             "Rubicson decoded — id=%u  ch=%u  battery=%s  temp=%.1f °C",
+             "Rubicson decoded [ id:%u ch:%u battery:%s temp:%.1f°C ]",
              sensor_id, channel,
-             battery_ok ? "OK" : "LOW",
+             battery_ok ? "ok" : "low",
              temp_c);
 
     if (temperature_sensor_ != nullptr)
@@ -231,11 +229,13 @@ bool RubicsonComponent::on_receive(remote_base::RemoteReceiveData data) {
         if (!is_pulse(v))
             continue;
 
-        if (try_decode_(raw, i)) {
+        if (decode_(raw, i)) {
             found = true;
             // Jump past the decoded packet.
             // Subtract 1 because the loop's ++i will advance one more step.
             i += msgBits * 2u - 1u;
+            // Stop after the first valid packet; don't waste time on repeats.
+            break;
         }
     }
 

@@ -39,8 +39,8 @@ class RubicsonComponent : public Component,
   int sensor_id_{-1};  ///< -1 = accept any sensor ID
   int channel_{-1};    ///< -1 = accept any channel
 
-  /// Attempt to decode one 36-bit Rubicson packet starting at raw[start].
-  bool try_decode_(const remote_base::RawTimings &raw, size_t start);
+  /// Decode one 36-bit Rubicson packet starting at raw[start].
+  bool decode_(const remote_base::RawTimings &raw, size_t start);
 };
 
 } // namespace rubicson
