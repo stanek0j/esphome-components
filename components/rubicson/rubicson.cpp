@@ -90,7 +90,7 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
             return false;   // Expected pulse, got gap or implausible duration
 
         // ── Gap ────────────────────────────────────────────────────────────
-        // Gaps are negative integers in ESPHome raw timings.
+        // Gaps are negative integers and determine the bit value.
         if (bit < msgBits) {
             if (gap_pos >= raw.size())
                 return false;
@@ -114,12 +114,10 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
         }
     }
 
-    ESP_LOGD(TAG, "Bytes: %02X %02X %02X %02X %02X",
+    ESP_LOGV(TAG, "Bytes extracted: %02X %02X %02X %02X %02X",
              bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]);
 
     // ── Checksum ──────────────────────────────────────────────────────────────
-    // XOR the low nibbles of the first four bytes.  Must equal 0x0F.
-    // (Identical to rtl_433 rubicson_callback checksum.)
     uint8_t tmp[5];
     tmp[0] = bytes[0];
     tmp[1] = bytes[1];
@@ -129,7 +127,7 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
 
     int crc = crc8(tmp, 5, 0x6c, 0x31, true);
     if (crc != 0) {
-        ESP_LOGD(TAG,
+        ESP_LOGV(TAG,
                  "Checksum FAIL  bytes=%02X %02X %02X %02X %02X >> crc=%02X",
                  tmp[0], tmp[1], tmp[2], tmp[3], tmp[4], crc);
         return false;
@@ -195,27 +193,6 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
         battery_low_sensor_->publish_state(!battery_ok);
 
     return true;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  crc8_()  —  Compute CRC8 checksum
-// ─────────────────────────────────────────────────────────────────────────────
-
-uint8_t RubicsonComponent::crc8_(const uint8_t *data, size_t len) {
-    uint8_t crc = 0x6c;  // Initial value used by rtl_433
-
-    for (size_t i = 0; i < len; ++i) {
-        crc ^= data[i];
-
-        for (uint8_t j = 0; j < 8; ++j) {
-            if (crc & 0x80)
-                crc = (crc << 1u) ^ 0x31;  // Polynomial x^8 + x^5 + x^4 + 1
-            else
-                crc <<= 1u;
-        }
-    }
-
-    return crc;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
