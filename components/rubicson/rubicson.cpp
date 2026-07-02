@@ -58,8 +58,8 @@ static const char *const TAG = "rubicson";
 //    • reset_gap   = 3916 µs
 //
 static inline bool is_pulse(int32_t t) { return t > 100 && t < 650; }
-static inline bool is_gap0(int32_t t) { return t > -1500 && t <=  -500; }
-static inline bool is_gap1(int32_t t) { return t > -2500 && t <= -1500; }
+static inline bool is_gap0(int32_t t) { return t > -2500 && t <= -1500; }
+static inline bool is_gap1(int32_t t) { return t > -1500 && t <=  -500; }
 static inline bool is_reset(int32_t t) { return t < -3500; }
 
 static constexpr size_t msgBits = 36;
