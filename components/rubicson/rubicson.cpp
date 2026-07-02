@@ -22,8 +22,8 @@
  * 36-bit packet layout (bit 0 = first received = MSB of byte 0)
  * ──────────────────────────────────────────────────────────────
  *   bits  0– 7  byte[0]  Sensor ID  (random; re-randomised on battery swap)
- *   bit       8  byte[1]  battery_ok   1 = OK, 0 = replace
- *   bit       9  byte[1]  don't-care
+ *   bit      8  byte[1]  battery_ok   1 = OK, 0 = replace
+ *   bit      9  byte[1]  don't-care
  *   bits 10–11  byte[1]  Channel  0–3
  *   bits 12–15  byte[1]  Temperature[11:8]   high nibble
  *   bits 16–23  byte[2]  Temperature[7:0]    low byte
@@ -51,7 +51,7 @@ static const char *const TAG = "rubicson";
 
 // ── Pulse timing windows (µs) ─────────────────────────────────────────────────
 //
-//  rtl_433 reference values: short_width = 500 µs, long_width = 1000 µs
+//  rtl_433 reference values: short_width = 124 µs, long_width = 488 µs
 //
 //  The ±50 % windows absorb:
 //    • ESPHome remote_receiver ISR jitter  (can be tens of µs on ESP32/8266)
@@ -60,9 +60,15 @@ static const char *const TAG = "rubicson";
 //
 //  The midpoint 750 µs cleanly separates the two bit classes.
 //
-static constexpr int32_t kMarkShortMin = 200;   // minimum valid short mark  → bit 0
-static constexpr int32_t kMarkBoundary = 750;   // everything < 750 → 0, ≥ 750 → 1
-static constexpr int32_t kMarkLongMax  = 1500;  // maximum valid long  mark  → bit 1
+//  Short pulse   128 µs
+//  Long pulse    488 µs
+//  Short gap     972 µs
+//  Long gap     1952 µs
+//  Reset gap    3916 µs
+//
+static constexpr int32_t kMarkShortMin = 100;   // minimum valid short mark  → bit 0
+static constexpr int32_t kMarkBoundary = 350;   // everything < 350 → 0, ≥ 350 → 1
+static constexpr int32_t kMarkLongMax  = 600;  // maximum valid long  mark  → bit 1
 
 //  Inter-bit space is nominally the same duration as a short mark (≈ 500 µs).
 //  Upper bound must stay well below the 8 ms inter-packet gap so we never
@@ -131,6 +137,9 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
                 return false;               // Implausible inter-bit gap
         }
     }
+
+    ESP_LOGD(TAG, "Bytes: %02X %02X %02X %02X %02X",
+             bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]);
 
     // ── Checksum ──────────────────────────────────────────────────────────────
     // XOR the low nibbles of the first four bytes.  Must equal 0x0F.
