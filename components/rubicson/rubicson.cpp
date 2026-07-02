@@ -135,7 +135,7 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
     // ── Field extraction ──────────────────────────────────────────────────────
     const uint8_t sensor_id  = bytes[0];
     const bool    battery_ok = (bytes[1] & 0x80u) != 0u;
-    const uint8_t channel    = (bytes[1] & 0x30u) >> 4u + 1u;
+    const uint8_t channel    = ((bytes[1] & 0x30u) >> 4u) + 1u;
 
     // 12-bit signed temperature × 10 = °C
     //
@@ -156,7 +156,7 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
     //
     const uint16_t packed =
         (static_cast<uint16_t>(bytes[1] & 0x0Fu) << 12u) |
-        (static_cast<uint16_t>(bytes[2])          <<  4u);
+        (static_cast<uint16_t>(bytes[2])         <<  4u);
 
     const int16_t temp_raw = static_cast<int16_t>(packed) >> 4;
     const float   temp_c   = static_cast<float>(temp_raw) / 10.0f;
