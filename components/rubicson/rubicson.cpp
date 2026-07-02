@@ -22,18 +22,18 @@
  * 36-bit packet layout (bit 0 = first received = MSB of byte 0)
  * ──────────────────────────────────────────────────────────────
  *   bits  0– 7  byte[0]  Sensor ID  (random; re-randomised on battery swap)
- *   bit      8  byte[1]  battery_ok   1 = OK, 0 = replace
- *   bit      9  byte[1]  don't-care
+ *   bit      8  byte[1]  Battery      1 = OK, 0 = LOW
+ *   bit      9  byte[1]  Don't-care
  *   bits 10–11  byte[1]  Channel 0–3
  *   bits 12–15  byte[1]  Temperature[11:8]   high nibble
  *   bits 16–23  byte[2]  Temperature[7:0]    low byte
  *   bits 24–27  byte[3]  Unknown (0x0F in rtl_433; may be a version or model ID)
- *   bits 28–31  byte[3]  checksum[7:4]  high nibble of CRC8
- *   bits 32–35  byte[4]  checksum[3:0]  low nibble of CRC8
+ *   bits 28–31  byte[3]  Checksum[7:4]  high nibble of CRC8
+ *   bits 32–35  byte[4]  Checksum[3:0]  low nibble of CRC8
  *
  * Checksum (rtl_433 convention)
  * ──────────────────────────────
- *   CRC8: polynominal: x^8 + x^5 + x^4 + 1  (0x31), initial value 0x6C
+ *   CRC8: polynomial: x^8 + x^5 + x^4 + 1  (0x31), initial value 0x6C
  *
  * Temperature
  * ───────────
@@ -148,10 +148,6 @@ bool RubicsonComponent::decode_(const remote_base::RawTimings &raw,
     //   3. Arithmetic-right-shift by 4 to place the value in bits [11:0]
     //      with correct sign extension into bits [15:12].
     //
-    // Note: right-shifting a negative int16_t is implementation-defined by
-    // the C++ standard, but GCC (which builds all ESP firmware) guarantees
-    // arithmetic shift for signed integers on ARM/Xtensa — matching rtl_433.
-    //
     const uint16_t packed =
         (static_cast<uint16_t>(bytes[1] & 0x0Fu) << 12u) |
         (static_cast<uint16_t>(bytes[2])         <<  4u);
@@ -176,11 +172,8 @@ bool RubicsonComponent::decode_(const remote_base::RawTimings &raw,
     }
 
     // ── Publish ───────────────────────────────────────────────────────────────
-    ESP_LOGD(TAG,
-             "Rubicson decoded [ id:%u ch:%u battery:%s temp:%.1f°C ]",
-             sensor_id, channel,
-             battery_ok ? "ok" : "low",
-             temp_c);
+    ESP_LOGD(TAG, "Rubicson decoded [ id:%u ch:%u battery:%s temp:%.1f°C ]",
+             sensor_id, channel, battery_ok ? "ok" : "low", temp_c);
 
     if (temperature_sensor_ != nullptr)
         temperature_sensor_->publish_state(temp_c);

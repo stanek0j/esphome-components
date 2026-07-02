@@ -1,6 +1,6 @@
 /**
  * @file rubicson.h
- * @brief ESPHome decoder for Rubicson 433 MHz OOK-PWM thermometers.
+ * @brief ESPHome decoder for Rubicson 433 MHz OOK-PPM thermometers.
  */
 
 #pragma once
@@ -17,14 +17,14 @@ class RubicsonComponent : public Component,
                           public remote_base::RemoteReceiverListener {
  public:
   // ── Setters called from generated Python code ─────────────────────────────
-  void set_temperature_sensor(sensor::Sensor *s)          { temperature_sensor_ = s; }
+  void set_temperature_sensor(sensor::Sensor *s) { temperature_sensor_ = s; }
   void set_battery_low_sensor(binary_sensor::BinarySensor *s) { battery_low_sensor_ = s; }
 
   /// Accept only packets from this 8-bit sensor ID.  Pass -1 to accept any.
   void set_sensor_id(int id) { sensor_id_ = id; }
 
   /// Accept only packets from this channel (1–3).  Pass -1 to accept any.
-  void set_channel(int ch)   { channel_ = ch; }
+  void set_channel(int ch) { channel_ = ch; }
 
   // ── ESPHome overrides ─────────────────────────────────────────────────────
   float get_setup_priority() const override { return setup_priority::DATA; }
