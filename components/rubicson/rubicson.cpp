@@ -91,8 +91,7 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
 
         // ── Gap ────────────────────────────────────────────────────────────
         // Gaps are negative integers in ESPHome raw timings.
-        // Skip validation after the very last bit (gap may be missing).
-        if (bit < msgBits - 1u) {
+        if (bit < msgBits) {
             if (gap_pos >= raw.size())
                 return false;
 
