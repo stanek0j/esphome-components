@@ -21,10 +21,20 @@ class RubicsonComponent : public Component,
   void set_battery_low_sensor(binary_sensor::BinarySensor *s) { battery_low_sensor_ = s; }
 
   /// Accept only packets from this 8-bit sensor ID.  Pass -1 to accept any.
-  void set_sensor_id(int id) { sensor_id_ = id; }
+  void set_sensor_id(int id) {
+    if (id < -1 || id > 255) {
+      ESP_LOGW(TAG, "Rubicson sensor ID must be 0–255 or -1 to reset; got %d", id);
+    }
+    sensor_id_ = id;
+  }
 
-  /// Accept only packets from this channel (0–3).  Pass -1 to accept any.
-  void set_channel(int ch)   { channel_ = ch; }
+  /// Accept only packets from this channel (1–3).  Pass -1 to accept any.
+  void set_channel(int ch)   {
+    if (ch < -1 || ch > 3 || ch == 0) {
+      ESP_LOGW(TAG, "Rubicson channel must be 1–3 or -1 to reset; got %d", ch);
+    }
+    channel_ = ch;
+  }
 
   // ── ESPHome overrides ─────────────────────────────────────────────────────
   float get_setup_priority() const override { return setup_priority::DATA; }

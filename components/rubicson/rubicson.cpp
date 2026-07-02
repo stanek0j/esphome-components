@@ -127,8 +127,7 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
 
     int crc = crc8(tmp, 5, 0x6c, 0x31, true);
     if (crc != 0) {
-        ESP_LOGV(TAG,
-                 "Checksum FAIL  bytes=%02X %02X %02X %02X %02X >> crc=%02X",
+        ESP_LOGV(TAG, "Checksum FAIL  bytes=%02X %02X %02X %02X %02X >> crc=%02X",
                  tmp[0], tmp[1], tmp[2], tmp[3], tmp[4], crc);
         return false;
     }
@@ -136,7 +135,7 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
     // ── Field extraction ──────────────────────────────────────────────────────
     const uint8_t sensor_id  = bytes[0];
     const bool    battery_ok = (bytes[1] & 0x80u) != 0u;
-    const uint8_t channel    = (bytes[1] & 0x30u) >> 4u;
+    const uint8_t channel    = (bytes[1] & 0x30u) >> 4u + 1u;
 
     // 12-bit signed temperature × 10 = °C
     //
@@ -163,13 +162,14 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
     const float   temp_c   = static_cast<float>(temp_raw) / 10.0f;
 
     // ── Optional packet filters ───────────────────────────────────────────────
-    // sensor_id_ == -1 or channel_ == -1 means "accept any".
+    // sensor_id_ == -1 means "accept any"
     if (sensor_id_ != -1 &&
         sensor_id != static_cast<uint8_t>(sensor_id_)) {
-        ESP_LOGV(TAG, "Filtered: sensor ID 0x%02X  (want 0x%02X)",
+        ESP_LOGV(TAG, "Filtered: sensor ID %.3u  (want %.3u)",
                  sensor_id, static_cast<uint8_t>(sensor_id_));
         return false;
     }
+    // channel_ == -1 means "accept any"
     if (channel_ != -1 &&
         channel != static_cast<uint8_t>(channel_)) {
         ESP_LOGV(TAG, "Filtered: channel %u  (want %u)",
@@ -179,7 +179,7 @@ bool RubicsonComponent::try_decode_(const remote_base::RawTimings &raw,
 
     // ── Publish ───────────────────────────────────────────────────────────────
     ESP_LOGD(TAG,
-             "Rubicson decoded — ID=0x%02X  ch=%u  battery=%s  temp=%.1f °C",
+             "Rubicson decoded — id=%.3u  ch=%u  battery=%s  temp=%.1f °C",
              sensor_id, channel,
              battery_ok ? "OK" : "LOW",
              temp_c);
