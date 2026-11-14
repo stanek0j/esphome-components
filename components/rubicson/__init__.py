@@ -7,7 +7,7 @@ Requires: CC1101 (or any OOK receiver) driving a remote_receiver pin.
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import sensor, binary_sensor
+from esphome.components import sensor, binary_sensor, remote_base
 from esphome.const import (
     CONF_ID,
     DEVICE_CLASS_BATTERY,
@@ -72,9 +72,8 @@ async def to_code(config: dict) -> None:
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
 
-    # Register as a listener on the remote_receiver component
-    recv = await cg.get_variable(config[CONF_RECEIVER_ID])
-    cg.add(recv.register_listener(var))
+    # Register listener and reserve its slot during code generation.
+    await remote_base.register_listener(var, config)
 
     if CONF_TEMPERATURE in config:
         sens = await sensor.new_sensor(config[CONF_TEMPERATURE])
